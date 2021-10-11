@@ -192,6 +192,9 @@ static int get_interface_addr(const char* pref, struct in_addr* addr,
                 pCurMulticast = pCurMulticast->Next;
             }
             pCurAddress = pCurAddress->Next;
+            if (pIfName == NULL) continue;
+            if (pref && strcmp(pIfName, pref) == 0)
+              break;
         }
         // Default to loopback address in case user is working locally.
         if (chosenAddr == 0 && loopbackAddr != 0)
