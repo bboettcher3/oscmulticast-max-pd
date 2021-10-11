@@ -18,6 +18,11 @@ Cmake is also required to generate visual studio solutions, and can be installed
 
 [cmake]: https://cmake.org/download/
 
+oscmulticast depends on version 0.30 of liblo or later.
+Please clone the [LibLo repository][liblo] and consult its documentation to build for Windows.
+
+[liblo]: https://github.com/radarsat1/liblo
+
 Finally, you'll need Visual Studio 2017 or 2019, which you can grab [here][visual_studio]. Be sure to install the C++ developer tools when installing if you don't already have them.
 
 [visual_studio]: https://visualstudio.microsoft.com/vs/
