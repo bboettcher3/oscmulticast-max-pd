@@ -9,6 +9,10 @@
 // *********************************************************
 // -(Includes)----------------------------------------------
 
+#ifdef WIN32
+#define _WINSOCKAPI_ //for winsock1/2 conflicts
+#endif
+
 #ifdef MAXMSP
 	#include "ext.h"			// standard Max include, always required
 	#include "ext_obex.h"		// required for new style Max object
@@ -22,9 +26,17 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#ifndef WIN32
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <iphlpapi.h>
+#endif
 #include "lo/lo.h"
 
 #define INTERVAL 1
@@ -76,6 +88,13 @@ static void maxpd_atom_set_float(t_atom *a, float d);
 // -(global class pointer variable)-------------------------
 static void *oscmulticast_class;
 
+#ifdef WIN32
+void ext_main(void* r)
+{
+  main();
+}
+#endif
+
 // *********************************************************
 // -(main)--------------------------------------------------
 #ifdef MAXMSP
@@ -124,14 +143,80 @@ static int get_interface_addr(const char* pref, struct in_addr* addr,
 
     *(unsigned int *)&zero = inet_addr("0.0.0.0");
 
+#ifdef WIN32
+    IP_ADAPTER_ADDRESSES *pAddresses = NULL;
+
+    ULONG outBufLen = 15000;
+    int interations = 0;
+    ULONG res;
+    // Get list of adapter addresses
+    int iter = 0;
+    do {
+        pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
+
+        res =
+            GetAdaptersAddresses(AF_UNSPEC, AF_INET, NULL, pAddresses, &outBufLen);
+
+        if (res == ERROR_BUFFER_OVERFLOW) {
+            free(pAddresses);
+            pAddresses = NULL;
+        }
+        else {
+            break;
+        }
+        iter++;
+    } while (res == ERROR_BUFFER_OVERFLOW && iter < 100);
+
+    // Search for preferred address and loopback
+    LPSOCKADDR chosenAddr = 0, loopbackAddr = 0;
+    char* pIfName = NULL;
+    if (res == NO_ERROR) {
+        IP_ADAPTER_ADDRESSES* pCurAddress = pAddresses;
+        while (pCurAddress != NULL) {
+            if (pCurAddress->OperStatus != IfOperStatusUp) {
+              pCurAddress = pCurAddress->Next;
+              continue;
+            }
+            IP_ADAPTER_MULTICAST_ADDRESS_XP* pCurMulticast = pCurAddress->FirstMulticastAddress;
+            while (pCurMulticast != NULL) {
+                if (pCurMulticast->Address.iSockaddrLength == 0) {
+                  pCurMulticast = pCurMulticast->Next;
+                  continue;
+                }
+                chosenAddr = pCurMulticast->Address.lpSockaddr;
+                pIfName = pCurAddress->AdapterName;
+                if (pref && strcmp(pCurAddress->AdapterName, pref) == 0)
+                    break;
+                else if (pCurAddress->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
+                    loopbackAddr = pCurMulticast->Address.lpSockaddr;
+                pCurMulticast = pCurMulticast->Next;
+            }
+            pCurAddress = pCurAddress->Next;
+        }
+        // Default to loopback address in case user is working locally.
+        if (chosenAddr == 0 && loopbackAddr != 0)
+            chosenAddr = loopbackAddr;
+
+        if (chosenAddr != 0) {
+            if (*iface)
+                free(*iface);
+            *iface = strdup(pIfName);
+            sa = (struct sockaddr_in*)chosenAddr;
+            *addr = sa->sin_addr;
+            return 0;
+        }
+    }
+
+    if (pAddresses) free(pAddresses);
+#else
     struct ifaddrs *ifaphead;
     struct ifaddrs *ifap;
     struct ifaddrs *iflo=0, *ifchosen=0;
 
     if (getifaddrs(&ifaphead) != 0)
         return 1;
-
     ifap = ifaphead;
+
     while (ifap) {
         sa = (struct sockaddr_in *) ifap->ifa_addr;
         if (!sa) {
@@ -165,6 +250,7 @@ static int get_interface_addr(const char* pref, struct in_addr* addr,
     }
 
     freeifaddrs(ifaphead);
+#endif
 
     return 2;
 }
